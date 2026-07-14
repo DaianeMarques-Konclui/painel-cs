@@ -2412,9 +2412,8 @@ async function renderDuplicidades(){
   container.innerHTML = dups.map(group=>{
     const label = group[0].client_name || group[0].client_email || "Cliente";
     const rows = [...group].sort((a,b)=>(a.start_time||"").localeCompare(b.start_time||"")).map(a=>{
-      const csName = (CS.find(c=>c.id===Object.keys(CS_EMAILS).find(k=>CS_EMAILS[k]===a.cs_email))||{}).name || a.cs_email || "—";
       const when = a.start_time ? new Date(a.start_time).toLocaleString("pt-BR") : "—";
-      return `<tr><td>${escapeHTML(csName)}</td><td>${when}</td><td class="badge">${escapeHTML(ghlAppointmentStatus(a))}</td></tr>`;
+      return `<tr><td>${when}</td><td class="badge">${escapeHTML(ghlAppointmentStatus(a))}</td></tr>`;
     }).join("");
     return `<div class="rec-item">
       <div class="rec-head">
@@ -2424,7 +2423,7 @@ async function renderDuplicidades(){
         </div>
       </div>
       <table class="history" style="margin-top:10px;">
-        <thead><tr><th>CS</th><th>Data/hora</th><th>Status</th></tr></thead>
+        <thead><tr><th>Data/hora</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
