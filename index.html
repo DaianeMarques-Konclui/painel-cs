@@ -2383,6 +2383,10 @@ function ghlAppointmentStatus(a){
   return a.status || (a.calendar && (a.calendar.appoinmentStatus || a.calendar.status)) || "";
 }
 
+function ghlBookedBy(a){
+  return (a.calendar && a.calendar.created_by) || "";
+}
+
 function findDuplicateAppointments(appointments){
   const CANCELLED = new Set(["cancelado","cancelled","canceled"]);
   const groups = {};
@@ -2413,7 +2417,7 @@ async function renderDuplicidades(){
     const label = group[0].client_name || group[0].client_email || "Cliente";
     const rows = [...group].sort((a,b)=>(a.start_time||"").localeCompare(b.start_time||"")).map(a=>{
       const when = a.start_time ? new Date(a.start_time).toLocaleString("pt-BR") : "—";
-      return `<tr><td>${when}</td><td class="badge">${escapeHTML(ghlAppointmentStatus(a))}</td></tr>`;
+      return `<tr><td>${when}</td><td>${escapeHTML(ghlBookedBy(a)||'—')}</td><td class="badge">${escapeHTML(ghlAppointmentStatus(a))}</td></tr>`;
     }).join("");
     return `<div class="rec-item">
       <div class="rec-head">
@@ -2423,7 +2427,7 @@ async function renderDuplicidades(){
         </div>
       </div>
       <table class="history" style="margin-top:10px;">
-        <thead><tr><th>Data/hora</th><th>Status</th></tr></thead>
+        <thead><tr><th>Data/hora</th><th>Marcado por</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
