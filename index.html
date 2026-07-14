@@ -381,6 +381,13 @@
         </div>
       </div>
       <div class="note">Este painel não tem acesso privado às contas Google do time, então em vez de embutir a agenda (o que exigiria torná-la pública), cada card só guarda o link e mostra um botão para abrir a agenda no Google Calendar — exige login normal, sem expor nada publicamente. Para conferir dados reais de agenda com mais detalhe (reuniões, participantes, gravações), peça direto aqui no chat.</div>
+
+      <div class="section-title">Possíveis duplicidades — Onboarding <span class="tag">ao vivo do GHL</span>
+        <button class="ghost small" id="dup-refresh-btn" style="margin-left:auto;">Atualizar agora</button>
+      </div>
+      <div class="note">Mesmo cliente com mais de um agendamento de onboarding ainda ativo (com qualquer CS). Cancelamentos não entram na comparação.</div>
+      <div id="dup-list" style="margin-bottom:28px;"></div>
+
       <div id="cal-list"></div>
     </div>
 
@@ -1152,6 +1159,20 @@ async function saveCsatResponses(csId, arr){
   try{ await window.storage.set("csat:"+csId, JSON.stringify(arr)); }catch(e){ console.error(e); }
 }
 
+// Calls de ONB/Acomp: lidas ao vivo da tabela ghl_calls, alimentada por
+// Workflows do GHL (um por calendário) que fazem upsert a cada mudança de
+// status do agendamento. Associação por e-mail da CS (assigned user no GHL).
+async function getGhlCalls(csId){
+  if(!sb) return [];
+  const csEmail = CS_EMAILS[csId];
+  if(!csEmail) return [];
+  try{
+    const { data, error } = await sb.from("ghl_calls").select("*").eq("cs_email", csEmail);
+    if(error) throw error;
+    return data||[];
+  }catch(e){ console.error(e); return []; }
+}
+
 let _feedbackMemo = {};
 async function getManagerFeedback(csId){
   if(_feedbackMemo[csId]) return _feedbackMemo[csId];
@@ -1411,6 +1432,24 @@ async function aggregate(csIds, period, customFrom, customTo){
   }
   sums.clientesInativos = Object.values(latestInativos).reduce((a,b)=>a+b,0);
 
+  // Calls de ONB/Acomp: se já existir dado real vindo do GHL (agenda), ele
+  // substitui os números da planilha por completo (é um corte, não uma mescla —
+  // enquanto o GHL não estiver alimentando, cai de volta pra planilha).
+  const ghlSums = { onbAgendadas:0, onbRealizadas:0, onbNoshow:0, onbReagendamento:0, acompAgendadas:0, acompRealizadas:0, acompNoshow:0, acompReagendamento:0 };
+  let anyGhlData = false;
+  for(const csId of csIds){
+    const calls = await getGhlCalls(csId);
+    if(calls.length) anyGhlData = true;
+    calls.filter(c => c.scheduled_at && inPeriod(String(c.scheduled_at).slice(0,10), period, customFrom, customTo)).forEach(c=>{
+      const prefix = c.call_type === "acomp" ? "acomp" : "onb";
+      ghlSums[prefix+"Agendadas"]++;
+      if(c.status === "showed") ghlSums[prefix+"Realizadas"]++;
+      else if(c.status === "noshow") ghlSums[prefix+"Noshow"]++;
+      else if(c.status === "rescheduled") ghlSums[prefix+"Reagendamento"]++;
+    });
+  }
+  if(anyGhlData) Object.assign(sums, ghlSums);
+
   // Calls Totais = ONB Agendadas + Acomp Agendadas (calculado, não um campo solto).
   // Calls Totais = ONB + Acomp Agendadas — mas se "Agendadas" não foi preenchida na origem,
   // cai para "Realizadas" (nunca é maior que a agendada de verdade), em vez de mostrar zero.
@@ -1605,7 +1644,7 @@ function buildCSView(cs){
       </div>
     </div>
 
-    <div class="note supervisor-only">Os números abaixo vêm da planilha oficial (Excel) importada, não de lançamento manual. Para atualizar, envie o Excel mais recente no chat do Claude e peça para reimportar.</div>
+    <div class="note supervisor-only">As calls de ONB/Acomp (agendadas, realizadas, noshow, reagendamento) vêm em tempo real da agenda do GHL. Os demais números abaixo vêm da planilha oficial (Excel) importada, não de lançamento manual — para atualizar, envie o Excel mais recente no chat do Claude e peça para reimportar.</div>
 
     <div class="section-title">Métricas do período <span class="tag">calculado</span></div>
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
@@ -2325,6 +2364,73 @@ async function renderRecordings(){
 function escapeHTML(s){ return (s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function escapeAttr(s){ return escapeHTML(s); }
 
+// ---- duplicidade de agendamentos (GHL) ----
+// Alimentada por um Workflow do GHL (calendário de Onboarding, qualquer status)
+// que faz upsert em ghl_appointments a cada mudança de compromisso.
+async function getGhlAppointments(){
+  if(!sb) return [];
+  try{
+    const { data, error } = await sb.from("ghl_appointments").select("*");
+    if(error) throw error;
+    return data||[];
+  }catch(e){ console.error(e); return []; }
+}
+
+// O status "de verdade" vem dentro do objeto "calendar" que o GHL manda
+// automaticamente (dados padrão) — a coluna status ficou de reserva, caso um
+// dia a gente consiga mapear ela como campo personalizado direto no GHL.
+function ghlAppointmentStatus(a){
+  return a.status || (a.calendar && (a.calendar.appoinmentStatus || a.calendar.status)) || "";
+}
+
+function findDuplicateAppointments(appointments){
+  const CANCELLED = new Set(["cancelado","cancelled","canceled"]);
+  const groups = {};
+  appointments.forEach(a=>{
+    if(CANCELLED.has(ghlAppointmentStatus(a).toLowerCase())) return;
+    const key = (a.client_email || a.client_name || "").trim().toLowerCase();
+    if(!key) return;
+    (groups[key] ||= []).push(a);
+  });
+  return Object.values(groups).filter(g => g.length > 1);
+}
+
+async function renderDuplicidades(){
+  const container = document.getElementById("dup-list");
+  if(!container) return;
+  const appointments = await getGhlAppointments();
+  if(!appointments.length){
+    container.innerHTML = `<div class="empty">Sem dados do GHL ainda — assim que o webhook estiver configurado, as duplicidades aparecem aqui automaticamente.</div>`;
+    return;
+  }
+  const dups = findDuplicateAppointments(appointments)
+    .sort((a,b)=> b.length - a.length);
+  if(!dups.length){
+    container.innerHTML = `<div class="empty">Nenhuma duplicidade encontrada no momento.</div>`;
+    return;
+  }
+  container.innerHTML = dups.map(group=>{
+    const label = group[0].client_name || group[0].client_email || "Cliente";
+    const rows = [...group].sort((a,b)=>(a.start_time||"").localeCompare(b.start_time||"")).map(a=>{
+      const csName = (CS.find(c=>c.id===Object.keys(CS_EMAILS).find(k=>CS_EMAILS[k]===a.cs_email))||{}).name || a.cs_email || "—";
+      const when = a.start_time ? new Date(a.start_time).toLocaleString("pt-BR") : "—";
+      return `<tr><td>${escapeHTML(csName)}</td><td>${when}</td><td class="badge">${escapeHTML(ghlAppointmentStatus(a))}</td></tr>`;
+    }).join("");
+    return `<div class="rec-item">
+      <div class="rec-head">
+        <div>
+          <div class="rec-title">${escapeHTML(label)}</div>
+          <div class="rec-meta">${escapeHTML(group[0].client_email||'')} · ${group.length} agendamentos ativos</div>
+        </div>
+      </div>
+      <table class="history" style="margin-top:10px;">
+        <thead><tr><th>CS</th><th>Data/hora</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join("");
+}
+
 // ---- calendar ----
 async function renderCalendars(){
   const urls = await getCalUrls();
@@ -2367,7 +2473,7 @@ function switchView(viewKey){
 
   if(viewKey==="overview") renderOverview();
   if(viewKey==="recordings") renderRecordings();
-  if(viewKey==="calendar") renderCalendars();
+  if(viewKey==="calendar"){ renderCalendars(); renderDuplicidades(); }
   if(viewKey==="todo") renderTodoList();
   if(viewKey==="gestao") renderGestao();
   if(viewKey.startsWith("cs-")){
@@ -2462,6 +2568,7 @@ function init(){
   });
   document.getElementById("todo-status-filter").addEventListener("change", renderTodoList);
   document.getElementById("gestao-refresh-btn").addEventListener("click", renderGestao);
+  document.getElementById("dup-refresh-btn").addEventListener("click", renderDuplicidades);
 
   document.getElementById("rec-reimport-btn").addEventListener("click", async ()=>{
     const added = await forceMergeRecordingsSeed();
