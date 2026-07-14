@@ -2463,6 +2463,7 @@ async function renderCalendars(){
 }
 
 // ---- nav / views ----
+let _dupAutoRefreshTimer = null;
 function switchView(viewKey){
   document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
   document.querySelectorAll(".nav-item, .cs-item").forEach(n=>n.classList.remove("active"));
@@ -2471,9 +2472,17 @@ function switchView(viewKey){
   const navEl = document.querySelector(`[data-view="${viewKey}"]`);
   if(navEl) navEl.classList.add("active");
 
+  // Só atualiza sozinho enquanto a aba de Agendas estiver aberta — evita
+  // ficar consultando o Supabase à toa em segundo plano nas outras telas.
+  if(_dupAutoRefreshTimer){ clearInterval(_dupAutoRefreshTimer); _dupAutoRefreshTimer = null; }
+
   if(viewKey==="overview") renderOverview();
   if(viewKey==="recordings") renderRecordings();
-  if(viewKey==="calendar"){ renderCalendars(); renderDuplicidades(); }
+  if(viewKey==="calendar"){
+    renderCalendars();
+    renderDuplicidades();
+    _dupAutoRefreshTimer = setInterval(renderDuplicidades, 30000);
+  }
   if(viewKey==="todo") renderTodoList();
   if(viewKey==="gestao") renderGestao();
   if(viewKey.startsWith("cs-")){
