@@ -265,6 +265,7 @@
 
     <div class="nav-group-label">Painel</div>
     <div class="nav-item active" data-view="overview"><span class="ic">◈</span> Visão geral</div>
+    <div class="nav-item" data-view="riscos"><span class="ic">⚠️</span> Riscos &amp; Duplicidades</div>
     <div class="nav-item" data-view="recordings"><span class="ic">▶</span> Gravações &amp; auditoria</div>
     <div class="nav-item" data-view="calendar"><span class="ic">▦</span> Agendas</div>
     <div class="nav-item" data-view="playbook"><span class="ic">📘</span> Playbook CS</div>
@@ -307,11 +308,6 @@
 
       <div class="note">Este painel é a fonte dos dados: cada CS lança sua rotina na aba com o próprio nome (ou os dados vêm da planilha oficial importada), e os números aqui se atualizam sozinhos. <b>Os dados ficam visíveis para qualquer pessoa com o link deste painel</b> (não há login individual). Quando enviar uma nova versão da planilha, use o botão "Atualizar da planilha" para trazer os números mais recentes.</div>
 
-      <div class="section-title">Riscos &amp; duplicidades <span class="tag">ao vivo</span>
-        <button class="ghost small" id="overview-risks-refresh-btn" style="margin-left:auto;">Atualizar agora</button>
-      </div>
-      <div id="overview-risks" style="margin-bottom:28px;"></div>
-
       <div class="section-title">Onboarding <span class="tag">ONB</span></div>
       <div class="card-grid" id="grid-onb"></div>
 
@@ -342,6 +338,19 @@
         </form>
       </div>
       <div id="feedback-history-list"></div>
+    </div>
+
+    <!-- RISCOS & DUPLICIDADES -->
+    <div class="view" id="view-riscos">
+      <div class="view-header">
+        <div>
+          <div class="eyebrow">Atenção</div>
+          <h1 class="view-title">Riscos &amp; Duplicidades</h1>
+          <div class="view-sub" id="riscos-sub">Noshow, churn, clientes inativos, CSAT baixo e agendamentos de onboarding duplicados</div>
+        </div>
+        <button class="ghost small" id="riscos-refresh-btn">Atualizar agora</button>
+      </div>
+      <div id="riscos-list"></div>
     </div>
 
     <!-- RECORDINGS -->
@@ -1049,6 +1058,8 @@ const CS_EMAILS = {
   kenia: "kenia.goncalves@konclui.com",
 };
 const SUPERVISOR_EMAILS = ["daiane.marques@konclui.com", "brianna.nascimento@konclui.com"];
+// null = supervisora (vê o time todo); id da CS = restringe a view de Riscos à própria carteira.
+let CURRENT_CS_ID = null;
 const GOOGLE_CLIENT_ID = "161070547896-hgf5e3jtc3sosln9f11svbhvit5v6al8.apps.googleusercontent.com";
 
 // ---- Supabase: banco de dados + login real ----
@@ -1675,7 +1686,6 @@ async function exportOverviewCsv(){
 
 async function renderOverview(){
   renderFeedbackHistory();
-  renderOverviewRisks();
   updateOverviewFreshness();
   const period = document.querySelector("#period-seg button.active").dataset.period;
   const customFrom = document.getElementById("custom-range-from").value;
@@ -2146,11 +2156,12 @@ async function renderGestao(){
 
 // Usado tanto pela Gestão quanto pelo painel de riscos da Visão geral —
 // mesma lógica, sem tocar no DOM, pra não duplicar regras em dois lugares.
-async function computeRisks(){
+async function computeRisks(csIds){
+  const targets = csIds ? CS.filter(c=>csIds.includes(c.id)) : CS;
   const risks = [];
   const twoWeeksAgo = (()=>{ const d=new Date(); d.setDate(d.getDate()-14); return d.toISOString().slice(0,10); })();
 
-  for(const cs of CS){
+  for(const cs of targets){
     const s = await aggregate([cs.id], "week");
     const agTotal = s.onbAgendadas + s.acompAgendadas;
     const noshowTotal = s.onbNoshow + s.acompNoshow;
@@ -2194,14 +2205,19 @@ function renderRiskList(container, risks, emptyMessage){
 }
 
 // Riscos (noshow, churn, inativos, CSAT baixo) + duplicidades de onboarding
-// do GHL, tudo num só lugar — único painel de atenção do dia, sem repetir
-// a mesma lista em Gestão/Agendas.
-async function renderOverviewRisks(){
-  const container = document.getElementById("overview-risks");
+// do GHL, tudo num só lugar. Supervisora vê o time todo; cada CS (via
+// CURRENT_CS_ID, setado no login) vê só a própria carteira.
+async function renderRiscosView(){
+  const container = document.getElementById("riscos-list");
   if(!container) return;
-  const risks = await computeRisks();
+  const csIds = CURRENT_CS_ID ? [CURRENT_CS_ID] : null;
+  const risks = await computeRisks(csIds);
   const appointments = await getGhlAppointments();
-  const dups = findDuplicateAppointments(appointments);
+  let dups = findDuplicateAppointments(appointments);
+  if(CURRENT_CS_ID){
+    const myEmail = CS_EMAILS[CURRENT_CS_ID];
+    dups = dups.filter(group => group.some(a => a.cs_email === myEmail));
+  }
   dups.forEach(group=>{
     const label = group[0].client_name || group[0].client_email || "Cliente";
     const details = [...group].sort((a,b)=>(a.start_time||"").localeCompare(b.start_time||"")).map(a=>{
@@ -2606,7 +2622,14 @@ function switchView(viewKey){
       const result = await refreshFromLiveSheet();
       if(result.ok && result.updated > 0){ renderOverview(); renderSidebarRings(); }
     }, 300000);
-    _dupAutoRefreshTimer = setInterval(renderOverviewRisks, 30000);
+  }
+  if(viewKey==="riscos"){
+    const sub = document.getElementById("riscos-sub");
+    if(sub) sub.textContent = CURRENT_CS_ID
+      ? "Noshow, churn, clientes inativos, CSAT baixo e onboardings duplicados da sua carteira"
+      : "Noshow, churn, clientes inativos, CSAT baixo e agendamentos de onboarding duplicados";
+    renderRiscosView();
+    _dupAutoRefreshTimer = setInterval(renderRiscosView, 30000);
   }
   if(viewKey==="recordings") renderRecordings();
   if(viewKey==="calendar") renderCalendars();
@@ -2706,7 +2729,7 @@ function init(){
   });
   document.getElementById("todo-status-filter").addEventListener("change", renderTodoList);
   document.getElementById("gestao-refresh-btn").addEventListener("click", renderGestao);
-  document.getElementById("overview-risks-refresh-btn").addEventListener("click", renderOverviewRisks);
+  document.getElementById("riscos-refresh-btn").addEventListener("click", renderRiscosView);
 
   document.getElementById("rec-reimport-btn").addEventListener("click", async ()=>{
     const added = await forceMergeRecordingsSeed();
@@ -2784,9 +2807,10 @@ function applyAccessControl(email){
     return;
   }
 
-  // CS: acesso só ao próprio painel + Playbook — esconde os demais itens de navegação
+  // CS: acesso só ao próprio painel + Playbook + Riscos (da própria carteira)
+  CURRENT_CS_ID = matchedCsId;
   document.querySelectorAll(".nav-item").forEach(el=>{
-    if(el.dataset.view !== "playbook") el.style.display = "none";
+    if(el.dataset.view !== "playbook" && el.dataset.view !== "riscos") el.style.display = "none";
   });
   document.querySelectorAll(".cs-item").forEach(el=>{
     el.style.display = (el.dataset.view === "cs-"+matchedCsId) ? "" : "none";
