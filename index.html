@@ -387,11 +387,7 @@
       </div>
       <div class="note">Este painel não tem acesso privado às contas Google do time, então em vez de embutir a agenda (o que exigiria torná-la pública), cada card só guarda o link e mostra um botão para abrir a agenda no Google Calendar — exige login normal, sem expor nada publicamente. Para conferir dados reais de agenda com mais detalhe (reuniões, participantes, gravações), peça direto aqui no chat.</div>
 
-      <div class="section-title">Possíveis duplicidades — Onboarding <span class="tag">ao vivo do GHL</span>
-        <button class="ghost small" id="dup-refresh-btn" style="margin-left:auto;">Atualizar agora</button>
-      </div>
-      <div class="note">Mesmo cliente com mais de um agendamento de onboarding ainda ativo (com qualquer CS). Cancelamentos não entram na comparação.</div>
-      <div id="dup-list" style="margin-bottom:28px;"></div>
+      <div class="note">Possíveis duplicidades de onboarding (mesmo cliente com mais de um agendamento ativo) agora aparecem na <b>Visão geral</b>, no painel de riscos — pra não repetir a mesma lista aqui.</div>
 
       <div id="cal-list"></div>
     </div>
@@ -867,7 +863,7 @@ Nossa reunião está reservada para [xx/xx às xxh]. Consegue me mandar um 👍 
       </div>
 
       <div class="section-title">⚠️ Riscos &amp; atenção <span class="tag">semana atual</span></div>
-      <div id="gestao-risks"></div>
+      <div class="note">Os riscos ao vivo (noshow, churn, inativos, CSAT baixo, duplicidades) agora ficam na <b>Visão geral</b>, no topo — pra não repetir a mesma lista em dois lugares.</div>
 
       <div class="section-title">🎯 Metas por CS <span class="tag">mês atual</span></div>
       <div id="gestao-goals"></div>
@@ -2145,7 +2141,6 @@ function todoStatusMeta(status, dueDate){
 
 // ---- gestão: riscos, metas, tendência, saúde dos dados ----
 async function renderGestao(){
-  renderGestaoRisks();
   renderGestaoGoals();
 }
 
@@ -2198,16 +2193,9 @@ function renderRiskList(container, risks, emptyMessage){
   `).join("");
 }
 
-async function renderGestaoRisks(){
-  const container = document.getElementById("gestao-risks");
-  if(!container) return;
-  const risks = await computeRisks();
-  renderRiskList(container, risks, "Nenhum risco identificado no momento — tudo dentro do esperado.");
-}
-
-// Mesmo painel de riscos da Gestão, mais as duplicidades de onboarding do
-// GHL, resumido na Visão geral — pra não precisar entrar em outra aba pra
-// saber se hoje tem algo pra resolver.
+// Riscos (noshow, churn, inativos, CSAT baixo) + duplicidades de onboarding
+// do GHL, tudo num só lugar — único painel de atenção do dia, sem repetir
+// a mesma lista em Gestão/Agendas.
 async function renderOverviewRisks(){
   const container = document.getElementById("overview-risks");
   if(!container) return;
@@ -2216,7 +2204,12 @@ async function renderOverviewRisks(){
   const dups = findDuplicateAppointments(appointments);
   dups.forEach(group=>{
     const label = group[0].client_name || group[0].client_email || "Cliente";
-    risks.push({ type:"duplicidade", cs:null, text:`${escapeHTML(label)} tem ${group.length} agendamentos de onboarding ativos ao mesmo tempo.` });
+    const details = [...group].sort((a,b)=>(a.start_time||"").localeCompare(b.start_time||"")).map(a=>{
+      const when = a.start_time ? new Date(a.start_time).toLocaleString("pt-BR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : "—";
+      const by = ghlBookedBy(a);
+      return by ? `${when} (marcado por ${by})` : when;
+    }).join(" · ");
+    risks.push({ type:"duplicidade", cs:null, text:`${label} tem ${group.length} agendamentos de onboarding ativos: ${details}` });
   });
   renderRiskList(container, risks, "Nenhum risco ou duplicidade identificado no momento — tudo dentro do esperado.");
 }
@@ -2560,41 +2553,6 @@ function findDuplicateAppointments(appointments){
   return Object.values(groups).filter(g => g.length > 1);
 }
 
-async function renderDuplicidades(){
-  const container = document.getElementById("dup-list");
-  if(!container) return;
-  const appointments = await getGhlAppointments();
-  if(!appointments.length){
-    container.innerHTML = `<div class="empty">Sem dados do GHL ainda — assim que o webhook estiver configurado, as duplicidades aparecem aqui automaticamente.</div>`;
-    return;
-  }
-  const dups = findDuplicateAppointments(appointments)
-    .sort((a,b)=> b.length - a.length);
-  if(!dups.length){
-    container.innerHTML = `<div class="empty">Nenhuma duplicidade encontrada no momento.</div>`;
-    return;
-  }
-  container.innerHTML = dups.map(group=>{
-    const label = group[0].client_name || group[0].client_email || "Cliente";
-    const rows = [...group].sort((a,b)=>(a.start_time||"").localeCompare(b.start_time||"")).map(a=>{
-      const when = a.start_time ? new Date(a.start_time).toLocaleString("pt-BR") : "—";
-      return `<tr><td>${when}</td><td>${escapeHTML(ghlBookedBy(a)||'—')}</td><td class="badge">${escapeHTML(ghlAppointmentStatus(a))}</td></tr>`;
-    }).join("");
-    return `<div class="rec-item">
-      <div class="rec-head">
-        <div>
-          <div class="rec-title">${escapeHTML(label)}</div>
-          <div class="rec-meta">${escapeHTML(group[0].client_email||'')} · ${group.length} agendamentos ativos</div>
-        </div>
-      </div>
-      <table class="history" style="margin-top:10px;">
-        <thead><tr><th>Data/hora</th><th>Marcado por</th><th>Status</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-  }).join("");
-}
-
 // ---- calendar ----
 async function renderCalendars(){
   const urls = await getCalUrls();
@@ -2648,13 +2606,10 @@ function switchView(viewKey){
       const result = await refreshFromLiveSheet();
       if(result.ok && result.updated > 0){ renderOverview(); renderSidebarRings(); }
     }, 300000);
+    _dupAutoRefreshTimer = setInterval(renderOverviewRisks, 30000);
   }
   if(viewKey==="recordings") renderRecordings();
-  if(viewKey==="calendar"){
-    renderCalendars();
-    renderDuplicidades();
-    _dupAutoRefreshTimer = setInterval(renderDuplicidades, 30000);
-  }
+  if(viewKey==="calendar") renderCalendars();
   if(viewKey==="todo") renderTodoList();
   if(viewKey==="gestao") renderGestao();
   if(viewKey.startsWith("cs-")){
@@ -2751,7 +2706,6 @@ function init(){
   });
   document.getElementById("todo-status-filter").addEventListener("change", renderTodoList);
   document.getElementById("gestao-refresh-btn").addEventListener("click", renderGestao);
-  document.getElementById("dup-refresh-btn").addEventListener("click", renderDuplicidades);
   document.getElementById("overview-risks-refresh-btn").addEventListener("click", renderOverviewRisks);
 
   document.getElementById("rec-reimport-btn").addEventListener("click", async ()=>{
