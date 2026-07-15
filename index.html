@@ -1213,6 +1213,120 @@ async function refreshFromSpreadsheet(){
   return totalUpdated;
 }
 
+// ---- planilha ao vivo (Google Sheets publicado como CSV) ----
+// Substitui o fluxo manual de "enviar o Excel no chat": o painel busca o CSV
+// publicado direto e atualiza os lançamentos sozinho. Quando o mês virar, é
+// preciso publicar a aba nova do mesmo jeito — isso não dá pra automatizar
+// sozinho, já que cada mês é uma aba separada na planilha.
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUoVQJcYe5ioMBNGqnHdV_3Ab-bWt5xTkRHdnm120rBGhb_cb5r8sfBmJjk4x2rg/pub?output=csv";
+
+function parseCsvText(text){
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for(let i=0; i<text.length; i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if(c === '"') inQuotes = true;
+      else if(c === ','){ row.push(field); field = ""; }
+      else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ""; }
+      else if(c === '\r'){ /* ignora, \n cuida da quebra de linha */ }
+      else field += c;
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+const MONTHS_PT = {"JANEIRO":1,"FEVEREIRO":2,"MARÇO":3,"MARCO":3,"ABRIL":4,"MAIO":5,"JUNHO":6,"JULHO":7,"AGOSTO":8,"SETEMBRO":9,"OUTUBRO":10,"NOVEMBRO":11,"DEZEMBRO":12};
+
+// Lê o bloco de 23 linhas por CS (mesma ordem de ROW_ORDER) e as colunas de
+// semana (Semana 01 a 05, com intervalo de datas tipo "01 A 03") da planilha
+// publicada, reconstruindo um lançamento por CS por semana com dado real.
+function parseSheetCsvIntoEntries(csvText){
+  const rows = parseCsvText(csvText);
+  let month = null, weekStartDays = null;
+  for(const r of rows){
+    if(month === null){
+      const m = (r[4]||"").match(/M[ÊE]S:\s*([A-ZÇÃÕ]+)/i);
+      if(m) month = MONTHS_PT[m[1].toUpperCase()] || null;
+    }
+    if(weekStartDays === null && r.slice(4,9).some(c => /^\s*\d+\s*A\s*/i.test(c||""))){
+      weekStartDays = r.slice(4,9).map(c=>{
+        const mm = (c||"").trim().match(/^(\d+)/);
+        return mm ? Number(mm[1]) : null;
+      });
+    }
+    if(month !== null && weekStartDays !== null) break;
+  }
+  if(month === null || weekStartDays === null) return {};
+
+  const year = new Date().getFullYear();
+  const pad2 = n => String(n).padStart(2,"0");
+  const result = {};
+  let i = 0;
+  while(i < rows.length){
+    const r = rows[i];
+    const idxNum = (r[0]||"").trim();
+    const csName = (r[1]||"").trim();
+    if(/^\d+$/.test(idxNum) && csName){
+      const csId = slug(csName);
+      const block = rows.slice(i, i + ROW_ORDER.length);
+      const weekHasData = [false,false,false,false,false];
+      const weekEntries = [{},{},{},{},{}];
+      block.forEach((br, rowIdx)=>{
+        const key = ROW_ORDER[rowIdx];
+        if(!key) return;
+        for(let w=0; w<5; w++){
+          const raw = (br[4+w] ?? "").trim();
+          if(raw !== "") weekHasData[w] = true;
+          const cleaned = raw.replace("%","").replace(",", ".");
+          const num = cleaned === "" || cleaned === "—" || cleaned === "-" ? 0 : Number(cleaned);
+          weekEntries[w][key] = isNaN(num) ? 0 : num;
+        }
+      });
+      const entries = [];
+      for(let w=0; w<5; w++){
+        if(!weekHasData[w] || weekStartDays[w] == null) continue;
+        const date = `${year}-${pad2(month)}-${pad2(weekStartDays[w])}`;
+        entries.push(Object.assign({}, weekEntries[w], { date, id: `sheet-${csId}-${date}` }));
+      }
+      result[csId] = entries;
+      i += ROW_ORDER.length;
+    } else {
+      i++;
+    }
+  }
+  return result;
+}
+
+async function refreshFromLiveSheet(){
+  try{
+    const res = await fetch(SHEET_CSV_URL, { cache: "no-store" });
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    const text = await res.text();
+    const parsed = parseSheetCsvIntoEntries(text);
+    let totalUpdated = 0;
+    for(const csId in parsed){
+      const newEntries = parsed[csId];
+      if(!newEntries.length) continue;
+      const existing = await getEntries(csId);
+      const newDates = new Set(newEntries.map(e=>e.date));
+      const kept = existing.filter(e => !newDates.has(e.date));
+      await saveEntries(csId, kept.concat(newEntries));
+      totalUpdated++;
+    }
+    return { ok:true, updated: totalUpdated };
+  }catch(e){
+    console.error("Falha ao atualizar da planilha ao vivo:", e);
+    return { ok:false, error: String(e) };
+  }
+}
+
 async function forceMergeCalendarEntries(){
   let addedCount = 0;
   for(const csId in (CALENDAR_ENTRIES_SEED||{})){
@@ -1308,6 +1422,8 @@ async function runInitialSeedsOnce(){
     await seedRecordingsIfNeeded();
     await sleep(200);
     await refreshFromSpreadsheet();
+    await sleep(200);
+    await refreshFromLiveSheet();
     await sleep(200);
     await replaceCsatFromLatestExport();
     await sleep(200);
@@ -2467,6 +2583,7 @@ async function renderCalendars(){
 
 // ---- nav / views ----
 let _dupAutoRefreshTimer = null;
+let _sheetAutoRefreshTimer = null;
 function switchView(viewKey){
   document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
   document.querySelectorAll(".nav-item, .cs-item").forEach(n=>n.classList.remove("active"));
@@ -2475,11 +2592,18 @@ function switchView(viewKey){
   const navEl = document.querySelector(`[data-view="${viewKey}"]`);
   if(navEl) navEl.classList.add("active");
 
-  // Só atualiza sozinho enquanto a aba de Agendas estiver aberta — evita
-  // ficar consultando o Supabase à toa em segundo plano nas outras telas.
+  // Só atualiza sozinho enquanto as abas relevantes estiverem abertas — evita
+  // ficar consultando o Supabase/planilha à toa em segundo plano nas outras telas.
   if(_dupAutoRefreshTimer){ clearInterval(_dupAutoRefreshTimer); _dupAutoRefreshTimer = null; }
+  if(_sheetAutoRefreshTimer){ clearInterval(_sheetAutoRefreshTimer); _sheetAutoRefreshTimer = null; }
 
-  if(viewKey==="overview") renderOverview();
+  if(viewKey==="overview"){
+    renderOverview();
+    _sheetAutoRefreshTimer = setInterval(async ()=>{
+      const result = await refreshFromLiveSheet();
+      if(result.ok && result.updated > 0){ renderOverview(); renderSidebarRings(); }
+    }, 300000);
+  }
   if(viewKey==="recordings") renderRecordings();
   if(viewKey==="calendar"){
     renderCalendars();
@@ -2550,8 +2674,10 @@ function init(){
   recFilter.addEventListener("change", renderRecordings);
 
   document.getElementById("refresh-spreadsheet-btn").addEventListener("click", async ()=>{
-    const updated = await refreshFromSpreadsheet();
-    showToast(updated > 0 ? `Dados da planilha atualizados (${updated} CS)` : "Nenhum dado de planilha para atualizar");
+    const result = await refreshFromLiveSheet();
+    showToast(result.ok
+      ? (result.updated > 0 ? `Dados da planilha atualizados (${result.updated} CS)` : "Nenhum dado novo na planilha")
+      : "Não consegui buscar a planilha agora — tenta de novo em instantes");
     renderOverview();
     renderSidebarRings();
   });
