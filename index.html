@@ -283,7 +283,7 @@
         <div>
           <div class="eyebrow">Visão geral</div>
           <h1 class="view-title">Todas as métricas, todas as CS</h1>
-          <div class="view-sub">Dados somados a partir dos lançamentos de cada CS</div>
+          <div class="view-sub">Dados somados a partir dos lançamentos de cada CS · <span id="overview-freshness">carregando...</span></div>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
           <div class="segmented" id="period-seg">
@@ -306,6 +306,11 @@
       </div>
 
       <div class="note">Este painel é a fonte dos dados: cada CS lança sua rotina na aba com o próprio nome (ou os dados vêm da planilha oficial importada), e os números aqui se atualizam sozinhos. <b>Os dados ficam visíveis para qualquer pessoa com o link deste painel</b> (não há login individual). Quando enviar uma nova versão da planilha, use o botão "Atualizar da planilha" para trazer os números mais recentes.</div>
+
+      <div class="section-title">Riscos &amp; duplicidades <span class="tag">ao vivo</span>
+        <button class="ghost small" id="overview-risks-refresh-btn" style="margin-left:auto;">Atualizar agora</button>
+      </div>
+      <div id="overview-risks" style="margin-bottom:28px;"></div>
 
       <div class="section-title">Onboarding <span class="tag">ONB</span></div>
       <div class="card-grid" id="grid-onb"></div>
@@ -1304,6 +1309,15 @@ function parseSheetCsvIntoEntries(csvText){
   return result;
 }
 
+let _lastSheetRefreshAt = null;
+function updateOverviewFreshness(){
+  const el = document.getElementById("overview-freshness");
+  if(!el) return;
+  el.textContent = _lastSheetRefreshAt
+    ? `planilha atualizada às ${_lastSheetRefreshAt.toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"})}`
+    : "planilha ainda não sincronizada nesta sessão";
+}
+
 async function refreshFromLiveSheet(){
   try{
     const res = await fetch(SHEET_CSV_URL, { cache: "no-store" });
@@ -1320,6 +1334,8 @@ async function refreshFromLiveSheet(){
       await saveEntries(csId, kept.concat(newEntries));
       totalUpdated++;
     }
+    _lastSheetRefreshAt = new Date();
+    updateOverviewFreshness();
     return { ok:true, updated: totalUpdated };
   }catch(e){
     console.error("Falha ao atualizar da planilha ao vivo:", e);
@@ -1663,6 +1679,8 @@ async function exportOverviewCsv(){
 
 async function renderOverview(){
   renderFeedbackHistory();
+  renderOverviewRisks();
+  updateOverviewFreshness();
   const period = document.querySelector("#period-seg button.active").dataset.period;
   const customFrom = document.getElementById("custom-range-from").value;
   const customTo = document.getElementById("custom-range-to").value;
@@ -2131,11 +2149,10 @@ async function renderGestao(){
   renderGestaoGoals();
 }
 
-async function renderGestaoRisks(){
-  const container = document.getElementById("gestao-risks");
-  if(!container) return;
+// Usado tanto pela Gestão quanto pelo painel de riscos da Visão geral —
+// mesma lógica, sem tocar no DOM, pra não duplicar regras em dois lugares.
+async function computeRisks(){
   const risks = [];
-  const today = todayISO();
   const twoWeeksAgo = (()=>{ const d=new Date(); d.setDate(d.getDate()-14); return d.toISOString().slice(0,10); })();
 
   for(const cs of CS){
@@ -2156,24 +2173,52 @@ async function renderGestaoRisks(){
       risks.push({ type:"csat", cs, text:`CSAT baixo (nota ${r.score}) de ${r.client||"cliente"} em ${r.date}${r.comment? " — \""+r.comment+"\"":""}` });
     });
   }
+  return risks;
+}
 
+const RISK_TYPE_LABEL = { noshow:"Noshow", churn:"Churn", inativos:"Inativos", csat:"CSAT baixo", duplicidade:"Duplicidade" };
+const RISK_TYPE_COLOR = { noshow:"pending", churn:"late", inativos:"pending", csat:"late", duplicidade:"late" };
+
+function renderRiskList(container, risks, emptyMessage){
+  if(!container) return;
   if(!risks.length){
-    container.innerHTML = `<div class="empty">Nenhum risco identificado no momento — tudo dentro do esperado.</div>`;
+    container.innerHTML = `<div class="empty">${emptyMessage}</div>`;
     return;
   }
-  const typeLabel = { noshow:"Noshow", churn:"Churn", inativos:"Inativos", csat:"CSAT baixo" };
-  const typeColor = { noshow:"amber", churn:"red", inativos:"amber", csat:"red" };
   container.innerHTML = risks.map(r=>`
     <div class="rec-item">
       <div class="rec-head">
         <div>
-          <div class="rec-title">${r.cs.name}</div>
+          <div class="rec-title">${r.cs ? r.cs.name : ''}</div>
           <div class="rec-meta">${escapeHTML(r.text)}</div>
         </div>
-        <span class="badge ${typeColor[r.type]==='red'?'late':'pending'}">${typeLabel[r.type]}</span>
+        <span class="badge ${RISK_TYPE_COLOR[r.type]}">${RISK_TYPE_LABEL[r.type]}</span>
       </div>
     </div>
   `).join("");
+}
+
+async function renderGestaoRisks(){
+  const container = document.getElementById("gestao-risks");
+  if(!container) return;
+  const risks = await computeRisks();
+  renderRiskList(container, risks, "Nenhum risco identificado no momento — tudo dentro do esperado.");
+}
+
+// Mesmo painel de riscos da Gestão, mais as duplicidades de onboarding do
+// GHL, resumido na Visão geral — pra não precisar entrar em outra aba pra
+// saber se hoje tem algo pra resolver.
+async function renderOverviewRisks(){
+  const container = document.getElementById("overview-risks");
+  if(!container) return;
+  const risks = await computeRisks();
+  const appointments = await getGhlAppointments();
+  const dups = findDuplicateAppointments(appointments);
+  dups.forEach(group=>{
+    const label = group[0].client_name || group[0].client_email || "Cliente";
+    risks.push({ type:"duplicidade", cs:null, text:`${escapeHTML(label)} tem ${group.length} agendamentos de onboarding ativos ao mesmo tempo.` });
+  });
+  renderRiskList(container, risks, "Nenhum risco ou duplicidade identificado no momento — tudo dentro do esperado.");
 }
 
 async function renderGestaoGoals(){
@@ -2707,6 +2752,7 @@ function init(){
   document.getElementById("todo-status-filter").addEventListener("change", renderTodoList);
   document.getElementById("gestao-refresh-btn").addEventListener("click", renderGestao);
   document.getElementById("dup-refresh-btn").addEventListener("click", renderDuplicidades);
+  document.getElementById("overview-risks-refresh-btn").addEventListener("click", renderOverviewRisks);
 
   document.getElementById("rec-reimport-btn").addEventListener("click", async ()=>{
     const added = await forceMergeRecordingsSeed();
