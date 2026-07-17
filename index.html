@@ -2406,22 +2406,30 @@ async function renderChecklistDiario(){
   }
 
   const sorted = [...filtered].sort((a,b)=> (b.date||"").localeCompare(a.date||""));
-  historyEl.innerHTML = `<table class="history">
-    <thead><tr><th>Data</th><th>CS</th><th>Ag/Re</th><th>Reagend.</th><th>No-show</th><th>CRM ok?</th></tr></thead>
-    <tbody>
-      ${sorted.map(e=>{
-        const cs = CS.find(c=>c.id===e.csId);
-        return `<tr>
-          <td>${e.date||''}</td>
-          <td style="font-family:var(--body);">${cs? cs.name : e.csId}</td>
-          <td>${e.callsAgendadas||0}/${e.callsRealizadas||0}</td>
-          <td>${e.reagendamentos||0}</td>
-          <td>${e.noshow||0}</td>
-          <td><span class="badge ${e.crmAtualizado? 'ok':'pending'}">${e.crmAtualizado? 'sim':'não'}</span></td>
-        </tr>`;
-      }).join("")}
-    </tbody>
-  </table>`;
+  historyEl.innerHTML = sorted.map(e=>{
+    const cs = CS.find(c=>c.id===e.csId);
+    const row = (label, value) => `<tr><td style="color:var(--muted); white-space:nowrap; width:1%;">${label}</td><td style="font-family:var(--body);">${value}</td></tr>`;
+    return `<div class="rec-item">
+      <div class="rec-head">
+        <div>
+          <div class="rec-title">${cs? cs.name : e.csId}</div>
+          <div class="rec-meta">${e.date||''}</div>
+        </div>
+      </div>
+      <table class="history" style="margin-top:10px;">
+        <tbody>
+          ${row("1. Calls agendadas hoje?", `<b>${e.callsAgendadas||0}</b> (ONB: ${e.callsAgendadasOnb||0} · Acomp: ${e.callsAgendadasAcomp||0})`)}
+          ${row("2. Calls realizadas hoje?", `<b>${e.callsRealizadas||0}</b> (ONB: ${e.callsRealizadasOnb||0} · Acomp: ${e.callsRealizadasAcomp||0})`)}
+          ${row("3. Houveram reagendamentos?", e.reagendamentos||0)}
+          ${row("4. Houveram calls no-show?", `${e.noshow||0}${e.noshowContato ? ` — contato p/ reagendar: ${escapeHTML(e.noshowContato)}` : ''}`)}
+          ${row("5. Solicitação de cancelamento?", escapeHTML(e.cancelamento||'—'))}
+          ${row("6. CRM/Jornada atualizados?", `<span class="badge ${e.crmAtualizado? 'ok':'pending'}">${e.crmAtualizado? 'Sim':'Não'}</span>${!e.crmAtualizado && e.crmFaltando ? ` — falta: ${escapeHTML(e.crmFaltando)}` : ''}`)}
+          ${row("7. Maior gargalo do dia?", escapeHTML(e.gargalo||'—'))}
+          ${row("8. Precisa de ajuda da supervisão?", escapeHTML(e.precisaAjuda||'—'))}
+        </tbody>
+      </table>
+    </div>`;
+  }).join("");
 }
 
 async function renderGestaoTrend(){
