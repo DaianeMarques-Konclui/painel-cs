@@ -1861,9 +1861,6 @@ function buildCSView(cs){
     </div>
     <div class="card-grid cs-summary-grid"></div>
 
-    <div class="section-title">Histórico de lançamentos</div>
-    <div class="cs-history-wrap"></div>
-
     <div class="section-title">Respostas de CSAT <span class="tag">por cliente</span>
       <button class="ghost small cs-csat-reimport-btn" style="margin-left:auto;">Importar do Typebot agora</button>
     </div>
@@ -2139,7 +2136,6 @@ async function renderCSPanel(cs){
   renderAgendaList(cs);
   renderCSFeedback(cs);
   renderCSRecordingFeedback(cs);
-  const entries = await getEntries(cs.id);
   const periodBtn = wrap.querySelector(".cs-period-seg button.active");
   const csPeriod = periodBtn ? periodBtn.dataset.period : "month";
   const csCustomFrom = wrap.querySelector(".cs-custom-range-from")?.value;
@@ -2159,42 +2155,6 @@ async function renderCSPanel(cs){
     metricCard("Indicações — taxa conversão", fmtPct(indTaxa), s.indConvertidas+"/"+s.indRecebidas, colorFor(indTaxa,30,10)) +
     metricCard("CSAT — taxa resposta", fmtPct(csatTaxa), s.csatRespostas+"/"+s.npsEnviados, colorFor(csatTaxa,50,25)) +
     metricCard("Churn — taxa reversão", fmtPct(churnTaxa), s.churnRevertido+"/"+s.churnPedidos, colorFor(churnTaxa,50,20));
-
-  const histWrap = wrap.querySelector(".cs-history-wrap");
-  if(!entries.length){
-    histWrap.innerHTML = `<div class="empty">Nenhum lançamento ainda. Use o formulário acima para começar.</div>`;
-    return;
-  }
-  const sorted = [...entries].sort((a,b)=>b.date.localeCompare(a.date));
-  histWrap.innerHTML = `<table class="history">
-    <thead><tr><th>Data</th><th>Calls Ag/Re</th><th>ONB Ag/Re</th><th>Acomp Ag/Re</th><th>Ind</th><th>NPS/CSAT</th><th>Churn</th><th></th></tr></thead>
-    <tbody>
-      ${sorted.map((e,i)=>`
-        <tr>
-          <td>${e.dateEnd && e.dateEnd !== e.date ? `${e.date} → ${e.dateEnd}` : e.date}</td>
-          <td>${(Number(e.onbAgendadas)||0)+(Number(e.acompAgendadas)||0)} / ${(Number(e.onbRealizadas)||0)+(Number(e.acompRealizadas)||0)}</td>
-          <td>${e.onbAgendadas||0}/${e.onbRealizadas||0}</td>
-          <td>${e.acompAgendadas||0}/${e.acompRealizadas||0}</td>
-          <td>${e.indRecebidas||0}→${e.indConvertidas||0}</td>
-          <td>${e.npsEnviados||0}/${e.csatRespostas||0}</td>
-          <td>${e.churnPedidos||0}/${e.churnRevertido||0}</td>
-          <td><button class="ghost small danger" data-del="${entries.indexOf(e)}">remover</button></td>
-        </tr>
-      `).join("")}
-    </tbody>
-  </table>`;
-
-  histWrap.querySelectorAll("[data-del]").forEach(btn=>{
-    btn.addEventListener("click", async ()=>{
-      const idx = Number(btn.dataset.del);
-      const fresh = await getEntries(cs.id);
-      fresh.splice(idx,1);
-      await saveEntries(cs.id, fresh);
-      showToast("Lançamento removido");
-      renderCSPanel(cs);
-      renderSidebarRings();
-    });
-  });
 }
 
 // ---- manager feedback (overview) ----
