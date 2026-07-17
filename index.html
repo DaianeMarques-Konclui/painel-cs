@@ -1345,10 +1345,12 @@ function parseSheetCsvIntoEntries(csvText){
   let i = 0;
   while(i < rows.length){
     const r = rows[i];
-    const idxNum = (r[0]||"").trim();
     const csName = (r[1]||"").trim();
-    if(/^\d+$/.test(idxNum) && csName){
-      const csId = slug(csName);
+    const csId = slug(csName);
+    // Reconhece o início do bloco pelo nome da CS bater com uma conhecida —
+    // não pelo número da coluna A, que pode estar em branco na planilha
+    // (aconteceu com a Rayssa) e fazia o bloco inteiro ser pulado.
+    if(csName && CS_EMAILS[csId]){
       const block = rows.slice(i, i + ROW_ORDER.length);
       const weekHasData = [false,false,false,false,false];
       const weekEntries = [{},{},{},{},{}];
