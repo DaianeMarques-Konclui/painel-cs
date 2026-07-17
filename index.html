@@ -1290,7 +1290,9 @@ async function refreshFromSpreadsheet(){
 // publicado direto e atualiza os lançamentos sozinho. Quando o mês virar, é
 // preciso publicar a aba nova do mesmo jeito — isso não dá pra automatizar
 // sozinho, já que cada mês é uma aba separada na planilha.
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUoVQJcYe5ioMBNGqnHdV_3Ab-bWt5xTkRHdnm120rBGhb_cb5r8sfBmJjk4x2rg/pub?output=csv";
+// gid=857780497 trava na aba "Julho26" específica — sem o gid, o Google publica
+// a primeira aba da planilha por padrão (foi como pegamos Junho por engano).
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUoVQJcYe5ioMBNGqnHdV_3Ab-bWt5xTkRHdnm120rBGhb_cb5r8sfBmJjk4x2rg/pub?gid=857780497&single=true&output=csv";
 
 function parseCsvText(text){
   const rows = [];
