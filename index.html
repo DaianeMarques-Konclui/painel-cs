@@ -1956,9 +1956,14 @@ async function renderCSCalendar(cs){
   }
 }
 
-async function renderCsatSection(cs){
+const CSAT_PAGE_SIZE = 10;
+let _csatPage = {};
+
+async function renderCsatSection(cs, page){
   const wrap = document.getElementById("view-cs-"+cs.id);
   if(!wrap) return;
+  if(page) _csatPage[cs.id] = page;
+  const currentPage = _csatPage[cs.id] || 1;
   const raw = await getCsatResponses(cs.id);
   // Proteção extra: remove qualquer duplicata por id, mesmo que tenha ficado salva de antes.
   const seenIds = new Set();
@@ -1984,10 +1989,15 @@ async function renderCsatSection(cs){
     metricCard("Notas 4-5", promoters, `${list.length? Math.round(promoters/list.length*100):0}% do total`, "teal");
 
   const sorted = [...list].sort((a,b)=> (b.date||"").localeCompare(a.date||""));
+  const totalPages = Math.max(1, Math.ceil(sorted.length / CSAT_PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  _csatPage[cs.id] = safePage;
+  const pageItems = sorted.slice((safePage-1)*CSAT_PAGE_SIZE, safePage*CSAT_PAGE_SIZE);
+
   listEl.innerHTML = `<table class="history">
     <thead><tr><th>Data</th><th>Cliente</th><th>Nota</th><th>Comentário</th><th></th></tr></thead>
     <tbody>
-      ${sorted.map(r=>{
+      ${pageItems.map(r=>{
         const idx = list.indexOf(r);
         const scoreColor = r.score>=4 ? "teal" : r.score>=3 ? "amber" : "red";
         return `<tr>
@@ -1999,7 +2009,14 @@ async function renderCsatSection(cs){
         </tr>`;
       }).join("")}
     </tbody>
-  </table>`;
+  </table>
+  ${totalPages > 1 ? `
+    <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin-top:12px;">
+      <button class="ghost small" data-csat-page="prev" ${safePage<=1?'disabled':''}>← Anterior</button>
+      <span class="foot" style="font-family:var(--mono);">página ${safePage} de ${totalPages}</span>
+      <button class="ghost small" data-csat-page="next" ${safePage>=totalPages?'disabled':''}>Próxima →</button>
+    </div>
+  ` : ''}`;
 
   listEl.querySelectorAll("[data-csat-del]").forEach(btn=>{
     btn.addEventListener("click", async ()=>{
@@ -2011,6 +2028,11 @@ async function renderCsatSection(cs){
       renderCsatSection(cs);
     });
   });
+
+  const prevBtn = listEl.querySelector('[data-csat-page="prev"]');
+  const nextBtn = listEl.querySelector('[data-csat-page="next"]');
+  if(prevBtn) prevBtn.addEventListener("click", ()=> renderCsatSection(cs, safePage-1));
+  if(nextBtn) nextBtn.addEventListener("click", ()=> renderCsatSection(cs, safePage+1));
 }
 
 const MONTH_NAMES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
