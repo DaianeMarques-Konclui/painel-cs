@@ -941,8 +941,8 @@ const DAILY_CHECKLIST_SEED = [
     date: "2026-07-17",
     callsAgendadas: 4, callsAgendadasOnb: 2, callsAgendadasAcomp: 2,
     callsRealizadas: 4, callsRealizadasOnb: 2, callsRealizadasAcomp: 2,
-    reagendamentos: 0,
-    noshow: 0, noshowContato: "N/a",
+    reagendamentos: 0, reagendamentosOnb: 0, reagendamentosAcomp: 0,
+    noshow: 0, noshowOnb: 0, noshowAcomp: 0, noshowContato: "N/a",
     cancelamento: "Não houve.",
     crmAtualizado: true, crmFaltando: "",
     gargalo: "Não houve gargalo específico.",
@@ -1665,11 +1665,10 @@ async function aggregate(csIds, period, customFrom, customTo){
   }
   if(anyGhlData) Object.assign(sums, ghlSums);
 
-  // Calls agendadas/realizadas: se a CS já respondeu o Checklist Diário no
-  // período, esses dois números passam a vir de lá (fonte mais direta que a
-  // planilha). Reagendamento/no-show continuam da planilha, porque o
-  // checklist só registra um total combinado, sem separar ONB de Acomp.
-  const checklistSums = { onbAgendadas:0, onbRealizadas:0, acompAgendadas:0, acompRealizadas:0 };
+  // Calls de ONB/Acomp: se a CS já respondeu o Checklist Diário no período,
+  // esses números passam a vir de lá (fonte mais direta que a planilha),
+  // incluindo reagendamento e no-show já separados por ONB/Acomp.
+  const checklistSums = { onbAgendadas:0, onbRealizadas:0, onbNoshow:0, onbReagendamento:0, acompAgendadas:0, acompRealizadas:0, acompNoshow:0, acompReagendamento:0 };
   let anyChecklistData = false;
   const allChecklists = await getDailyChecklists();
   for(const csId of csIds){
@@ -1678,8 +1677,12 @@ async function aggregate(csIds, period, customFrom, customTo){
     entries.forEach(e=>{
       checklistSums.onbAgendadas += Number(e.callsAgendadasOnb||0);
       checklistSums.onbRealizadas += Number(e.callsRealizadasOnb||0);
+      checklistSums.onbNoshow += Number(e.noshowOnb||0);
+      checklistSums.onbReagendamento += Number(e.reagendamentosOnb||0);
       checklistSums.acompAgendadas += Number(e.callsAgendadasAcomp||0);
       checklistSums.acompRealizadas += Number(e.callsRealizadasAcomp||0);
+      checklistSums.acompNoshow += Number(e.noshowAcomp||0);
+      checklistSums.acompReagendamento += Number(e.reagendamentosAcomp||0);
     });
   }
   if(anyChecklistData) Object.assign(sums, checklistSums);
@@ -2443,8 +2446,8 @@ async function renderChecklistDiario(){
         <tbody>
           ${row("1. Calls agendadas hoje?", `<b>${e.callsAgendadas||0}</b> (ONB: ${e.callsAgendadasOnb||0} · Acomp: ${e.callsAgendadasAcomp||0})`)}
           ${row("2. Calls realizadas hoje?", `<b>${e.callsRealizadas||0}</b> (ONB: ${e.callsRealizadasOnb||0} · Acomp: ${e.callsRealizadasAcomp||0})`)}
-          ${row("3. Houveram reagendamentos?", e.reagendamentos||0)}
-          ${row("4. Houveram calls no-show?", `${e.noshow||0}${e.noshowContato ? ` — contato p/ reagendar: ${escapeHTML(e.noshowContato)}` : ''}`)}
+          ${row("3. Houveram reagendamentos?", `<b>${e.reagendamentos||0}</b> (ONB: ${e.reagendamentosOnb||0} · Acomp: ${e.reagendamentosAcomp||0})`)}
+          ${row("4. Houveram calls no-show?", `<b>${e.noshow||0}</b> (ONB: ${e.noshowOnb||0} · Acomp: ${e.noshowAcomp||0})${e.noshowContato ? ` — contato p/ reagendar: ${escapeHTML(e.noshowContato)}` : ''}`)}
           ${row("5. Solicitação de cancelamento?", escapeHTML(e.cancelamento||'—'))}
           ${row("6. CRM/Jornada atualizados?", `<span class="badge ${e.crmAtualizado? 'ok':'pending'}">${e.crmAtualizado? 'Sim':'Não'}</span>${!e.crmAtualizado && e.crmFaltando ? ` — falta: ${escapeHTML(e.crmFaltando)}` : ''}`)}
           ${row("7. Maior gargalo do dia?", escapeHTML(e.gargalo||'—'))}
