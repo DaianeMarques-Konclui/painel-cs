@@ -1665,6 +1665,25 @@ async function aggregate(csIds, period, customFrom, customTo){
   }
   if(anyGhlData) Object.assign(sums, ghlSums);
 
+  // Calls agendadas/realizadas: se a CS já respondeu o Checklist Diário no
+  // período, esses dois números passam a vir de lá (fonte mais direta que a
+  // planilha). Reagendamento/no-show continuam da planilha, porque o
+  // checklist só registra um total combinado, sem separar ONB de Acomp.
+  const checklistSums = { onbAgendadas:0, onbRealizadas:0, acompAgendadas:0, acompRealizadas:0 };
+  let anyChecklistData = false;
+  const allChecklists = await getDailyChecklists();
+  for(const csId of csIds){
+    const entries = allChecklists.filter(e => e.csId===csId && e.date && inPeriod(e.date, period, customFrom, customTo));
+    if(entries.length) anyChecklistData = true;
+    entries.forEach(e=>{
+      checklistSums.onbAgendadas += Number(e.callsAgendadasOnb||0);
+      checklistSums.onbRealizadas += Number(e.callsRealizadasOnb||0);
+      checklistSums.acompAgendadas += Number(e.callsAgendadasAcomp||0);
+      checklistSums.acompRealizadas += Number(e.callsRealizadasAcomp||0);
+    });
+  }
+  if(anyChecklistData) Object.assign(sums, checklistSums);
+
   // Calls Totais = ONB Agendadas + Acomp Agendadas (calculado, não um campo solto).
   // Calls Totais = ONB + Acomp Agendadas — mas se "Agendadas" não foi preenchida na origem,
   // cai para "Realizadas" (nunca é maior que a agendada de verdade), em vez de mostrar zero.
