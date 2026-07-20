@@ -948,6 +948,90 @@ const DAILY_CHECKLIST_SEED = [
     gargalo: "Não houve gargalo específico.",
     precisaAjuda: "Não preciso",
   },
+  {
+    id: "checklist_laryssa_2026-07-20",
+    csId: "laryssa",
+    date: "2026-07-20",
+    callsAgendadas: 7, callsAgendadasOnb: 0, callsAgendadasAcomp: 7,
+    callsRealizadas: 5, callsRealizadasOnb: 0, callsRealizadasAcomp: 5,
+    reagendamentos: 2,
+    noshow: 0, noshowContato: "Não houve No Show.",
+    provaSocial: "Por hora não.",
+    indicacaoSolicitada: false, indicacaoDetalhes: "",
+    cancelamento: "Não.",
+    gargalo: "Cliente reagendando em cima da hora. Confirmam a pré call e depois solicitam reagendamento.",
+    precisaAjuda: "No momento não.",
+  },
+  {
+    id: "checklist_nivea_2026-07-20",
+    csId: "nivea",
+    date: "2026-07-20",
+    callsAgendadas: 5, callsAgendadasOnb: 3, callsAgendadasAcomp: 1,
+    callsRealizadas: 4, callsRealizadasOnb: 3, callsRealizadasAcomp: 1,
+    reagendamentos: 2,
+    noshow: 1, noshowContato: "sim",
+    provaSocial: "no momento não",
+    indicacaoSolicitada: false, indicacaoDetalhes: "Não",
+    cancelamento: "Não",
+    gargalo: "Horário quebrado, o que acaba interferindo na nossa programação.",
+    precisaAjuda: "Não",
+  },
+  {
+    id: "checklist_daniella_2026-07-20",
+    csId: "daniella",
+    date: "2026-07-20",
+    callsAgendadas: 4, callsAgendadasOnb: 2, callsAgendadasAcomp: 2,
+    callsRealizadas: 1, callsRealizadasOnb: 0, callsRealizadasAcomp: 1,
+    reagendamentos: 3,
+    noshow: 0, noshowContato: "nao houve no show",
+    provaSocial: "sim",
+    indicacaoSolicitada: false, indicacaoDetalhes: "N/A",
+    cancelamento: "nao",
+    gargalo: "Erro de agendamento, cliente solicitou agendamento para terça e foi agendado hoje. Isso fez com que eu perdesse um horário de call",
+    precisaAjuda: "nao",
+  },
+  {
+    id: "checklist_clarissa_2026-07-20",
+    csId: "clarissa",
+    date: "2026-07-20",
+    callsAgendadas: 4, callsAgendadasOnb: 4, callsAgendadasAcomp: 0,
+    callsRealizadas: 3, callsRealizadasOnb: 3, callsRealizadasAcomp: 0,
+    reagendamentos: 1,
+    noshow: 0, noshowContato: "-",
+    provaSocial: "Não",
+    indicacaoSolicitada: false, indicacaoDetalhes: "",
+    cancelamento: "Não",
+    gargalo: "Não houve",
+    precisaAjuda: "Não",
+  },
+  {
+    id: "checklist_rayssa_2026-07-20",
+    csId: "rayssa",
+    date: "2026-07-20",
+    callsAgendadas: 3, callsAgendadasOnb: 2, callsAgendadasAcomp: 1,
+    callsRealizadas: 4, callsRealizadasOnb: 2, callsRealizadasAcomp: 1,
+    reagendamentos: 0,
+    noshow: 0, noshowContato: "não se aplica",
+    provaSocial: "não",
+    indicacaoSolicitada: false, indicacaoDetalhes: "n/a",
+    cancelamento: "não",
+    gargalo: "",
+    precisaAjuda: "Carlos Augusto, (21) 993235943",
+  },
+  {
+    id: "checklist_jalile_2026-07-20",
+    csId: "jalile",
+    date: "2026-07-20",
+    callsAgendadas: 5, callsAgendadasOnb: 3, callsAgendadasAcomp: 2,
+    callsRealizadas: 4, callsRealizadasOnb: 3, callsRealizadasAcomp: 1,
+    reagendamentos: 1,
+    noshow: 0, noshowContato: "não tive no show",
+    provaSocial: "sim",
+    indicacaoSolicitada: false, indicacaoDetalhes: "",
+    cancelamento: "não",
+    gargalo: "falta de calls. fiquei com horários da tarde livres",
+    precisaAjuda: "Já passei para a Dai. Cliente da operação Ippon que precisa ajustar o acesso, pois tivemos problemas com a baixa do pagamento.",
+  },
 ];
 
 // Respostas de CSAT importadas do Typebot (formulário conectado por e-mail da CS).
@@ -1665,10 +1749,12 @@ async function aggregate(csIds, period, customFrom, customTo){
   }
   if(anyGhlData) Object.assign(sums, ghlSums);
 
-  // Calls de ONB/Acomp: se a CS já respondeu o Checklist Diário no período,
-  // esses números passam a vir de lá (fonte mais direta que a planilha),
-  // incluindo reagendamento e no-show já separados por ONB/Acomp.
-  const checklistSums = { onbAgendadas:0, onbRealizadas:0, onbNoshow:0, onbReagendamento:0, acompAgendadas:0, acompRealizadas:0, acompNoshow:0, acompReagendamento:0 };
+  // Calls agendadas/realizadas de ONB/Acomp: se a CS já respondeu o Checklist
+  // Diário no período, esses dois números passam a vir de lá (fonte mais
+  // direta que a planilha). Reagendamento/no-show continuam da planilha — o
+  // checklist real só pede um total combinado pra esses dois, sem separar
+  // ONB de Acomp.
+  const checklistSums = { onbAgendadas:0, onbRealizadas:0, acompAgendadas:0, acompRealizadas:0 };
   let anyChecklistData = false;
   const allChecklists = await getDailyChecklists();
   for(const csId of csIds){
@@ -1677,12 +1763,8 @@ async function aggregate(csIds, period, customFrom, customTo){
     entries.forEach(e=>{
       checklistSums.onbAgendadas += Number(e.callsAgendadasOnb||0);
       checklistSums.onbRealizadas += Number(e.callsRealizadasOnb||0);
-      checklistSums.onbNoshow += Number(e.noshowOnb||0);
-      checklistSums.onbReagendamento += Number(e.reagendamentosOnb||0);
       checklistSums.acompAgendadas += Number(e.callsAgendadasAcomp||0);
       checklistSums.acompRealizadas += Number(e.callsRealizadasAcomp||0);
-      checklistSums.acompNoshow += Number(e.noshowAcomp||0);
-      checklistSums.acompReagendamento += Number(e.reagendamentosAcomp||0);
     });
   }
   if(anyChecklistData) Object.assign(sums, checklistSums);
@@ -2391,10 +2473,9 @@ async function renderChecklistDiario(){
     a.realizadas += Number(e.callsRealizadas||0);
     a.reagendamentos += Number(e.reagendamentos||0);
     a.noshow += Number(e.noshow||0);
-    a.crmOk += e.crmAtualizado ? 1 : 0;
+    a.indicacoes += e.indicacaoSolicitada ? 1 : 0;
     return a;
-  }, { agendadas:0, realizadas:0, reagendamentos:0, noshow:0, crmOk:0 });
-  const crmPct = filtered.length ? Math.round((sums.crmOk/filtered.length)*100) : 0;
+  }, { agendadas:0, realizadas:0, reagendamentos:0, noshow:0, indicacoes:0 });
   const compTaxa = pct(sums.realizadas, sums.agendadas);
 
   summaryGrid.innerHTML =
@@ -2403,10 +2484,10 @@ async function renderChecklistDiario(){
     metricCard("Taxa de comparecimento", fmtPct(compTaxa), sums.realizadas+" de "+sums.agendadas, colorFor(compTaxa)) +
     metricCard("Reagendamentos", sums.reagendamentos) +
     metricCard("No-show", sums.noshow, null, sums.noshow>0 ? "amber" : "teal") +
-    metricCard("CRM 100% atualizado", crmPct+"%", filtered.length+" checklist(s) respondido(s)", colorFor(crmPct,90,70));
+    metricCard("Indicação solicitada", sums.indicacoes, filtered.length+" checklist(s) respondido(s)", "teal");
 
   const attention = filtered.filter(e =>
-    hasMeaningfulNote(e.cancelamento) || hasMeaningfulNote(e.gargalo) || hasMeaningfulNote(e.precisaAjuda) || e.crmAtualizado===false
+    hasMeaningfulNote(e.cancelamento) || hasMeaningfulNote(e.gargalo) || hasMeaningfulNote(e.precisaAjuda) || hasMeaningfulNote(e.provaSocial)
   ).sort((a,b)=> (b.date||"").localeCompare(a.date||""));
 
   if(!attention.length){
@@ -2416,9 +2497,9 @@ async function renderChecklistDiario(){
       const cs = CS.find(c=>c.id===e.csId);
       const bits = [];
       if(hasMeaningfulNote(e.cancelamento)) bits.push(`<div><b>Cancelamento:</b> ${escapeHTML(e.cancelamento)}</div>`);
-      if(e.crmAtualizado===false) bits.push(`<div><b>CRM pendente:</b> ${escapeHTML(e.crmFaltando||"não informado")}</div>`);
       if(hasMeaningfulNote(e.gargalo)) bits.push(`<div><b>Gargalo:</b> ${escapeHTML(e.gargalo)}</div>`);
       if(hasMeaningfulNote(e.precisaAjuda)) bits.push(`<div><b>Pediu ajuda:</b> ${escapeHTML(e.precisaAjuda)}</div>`);
+      if(hasMeaningfulNote(e.provaSocial)) bits.push(`<div><b>Cliente p/ prova social:</b> ${escapeHTML(e.provaSocial)}</div>`);
       return `<div class="rec-item">
         <div class="rec-head">
           <div>
@@ -2446,12 +2527,13 @@ async function renderChecklistDiario(){
         <tbody>
           ${row("1. Calls agendadas hoje?", `<b>${e.callsAgendadas||0}</b> (ONB: ${e.callsAgendadasOnb||0} · Acomp: ${e.callsAgendadasAcomp||0})`)}
           ${row("2. Calls realizadas hoje?", `<b>${e.callsRealizadas||0}</b> (ONB: ${e.callsRealizadasOnb||0} · Acomp: ${e.callsRealizadasAcomp||0})`)}
-          ${row("3. Houveram reagendamentos?", `<b>${e.reagendamentos||0}</b> (ONB: ${e.reagendamentosOnb||0} · Acomp: ${e.reagendamentosAcomp||0})`)}
-          ${row("4. Houveram calls no-show?", `<b>${e.noshow||0}</b> (ONB: ${e.noshowOnb||0} · Acomp: ${e.noshowAcomp||0})${e.noshowContato ? ` — contato p/ reagendar: ${escapeHTML(e.noshowContato)}` : ''}`)}
-          ${row("5. Solicitação de cancelamento?", escapeHTML(e.cancelamento||'—'))}
-          ${row("6. CRM/Jornada atualizados?", `<span class="badge ${e.crmAtualizado? 'ok':'pending'}">${e.crmAtualizado? 'Sim':'Não'}</span>${!e.crmAtualizado && e.crmFaltando ? ` — falta: ${escapeHTML(e.crmFaltando)}` : ''}`)}
-          ${row("7. Maior gargalo do dia?", escapeHTML(e.gargalo||'—'))}
-          ${row("8. Precisa de ajuda da supervisão?", escapeHTML(e.precisaAjuda||'—'))}
+          ${row("3. Houveram reagendamentos?", `<b>${e.reagendamentos||0}</b>`)}
+          ${row("4. Houveram calls no-show?", `<b>${e.noshow||0}</b>${e.noshowContato ? ` — contato p/ reagendar: ${escapeHTML(e.noshowContato)}` : ''}`)}
+          ${row("5. Cliente indicável p/ prova social?", escapeHTML(e.provaSocial||'—'))}
+          ${row("6. Indicação solicitada?", `<span class="badge ${e.indicacaoSolicitada? 'ok':''}">${e.indicacaoSolicitada? 'Sim':'Não'}</span>${e.indicacaoSolicitada && e.indicacaoDetalhes ? ` — ${escapeHTML(e.indicacaoDetalhes)}` : ''}`)}
+          ${row("7. Solicitação de cancelamento?", escapeHTML(e.cancelamento||'—'))}
+          ${row("8. Maior gargalo do dia?", escapeHTML(e.gargalo||'—'))}
+          ${row("9. Precisa de ajuda da supervisão?", escapeHTML(e.precisaAjuda||'—'))}
         </tbody>
       </table>
     </div>`;
